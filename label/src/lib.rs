@@ -30,7 +30,7 @@
 //! Label also supports labels on `static` and `const` variables, and iterating over the names of labeled items.
 //! For more information about this, visit the docs on [create_label](label_macros::create_label)
 //!
-
+pub mod __hidden__;
 pub use ctor::ctor;
 pub use label_macros::__label;
 pub use label_macros::create_label;

@@ -108,6 +108,20 @@ impl Parse for Item {
     }
 }
 
+fn impl_per_path(
+    path: &syn::Path,
+    item_name_str: &str,
+    item_quote: &proc_macro2::TokenStream,
+) -> proc_macro2::TokenStream {
+    quote! {
+        {
+            static mut NODE: CollectionNode<(&'static str, #path::Signature)> = CollectionNode::new((#item_name_str, #item_quote));
+            //SAFETY: unique use of NODE
+            #path::__add_label(unsafe{&mut NODE});
+        }
+    }
+}
+
 #[proc_macro_attribute]
 #[doc(hidden)]
 /// DO NOT USE DIRECTLY! USE THROUGH CREATE_ANNOTATION
@@ -187,6 +201,11 @@ pub fn __label(_attr: TokenStream, item: TokenStream) -> TokenStream {
         },
     };
 
+    let per_path = std::iter::once(&callpath)
+        .chain(other_annotations.iter())
+        .map(|p| impl_per_path(p, &item_name_str, &item_quote))
+        .collect::<Vec<_>>();
+
     let result = quote! {
         #item
 
@@ -196,16 +215,11 @@ pub fn __label(_attr: TokenStream, item: TokenStream) -> TokenStream {
         const _: () = {
             use label::ctor;
 
+            use label::__hidden__::CollectionNode;
+
             #[ctor]
             fn create () {
-                // Safety: This is unsafe because sometimes I use mut statics here. However, I'm only giving out pointers
-                // to them for which I make sure you can't use them without an unsafe block where they are used.
-                unsafe {
-                    // register for all label it should be registered for
-                    #callpath::__add_label(#item_name_str, #item_quote);
-
-                    #(#other_annotations ::__add_label(#item_name_str, #item_quote);)*
-                }
+                #(#per_path)*
             }
         };
     };
@@ -415,15 +429,15 @@ pub fn create_label(signatures: TokenStream) -> TokenStream {
                     use super::*;
 
                     pub use label::__label as label;
+                    pub use label::__hidden__::{Collection, CollectionNode};
 
-                    pub static mut FUNCTIONS: Option<Vec<(&'static str, #signature)>> = None;
+                    pub static FUNCTIONS: Collection<(&'static str, #signature)> = Collection::new();
 
                     pub fn iter() -> impl Iterator<Item = #signature> {
                         // Safety: after FUNCTIONS is populated (before main is called),
                         // FUNCTIONS remains unchanged for the entire rest of the program.
-
                         unsafe{
-                            FUNCTIONS.iter().flat_map(|i| i.iter().map(|i| &i.1)).cloned()
+                            FUNCTIONS.iter().map(|e| e.1)
                         }
                     }
 
@@ -431,21 +445,18 @@ pub fn create_label(signatures: TokenStream) -> TokenStream {
                         // Safety: after FUNCTIONS is populated (before main is called),
                         // FUNCTIONS remains unchanged for the entire rest of the program.
                         unsafe{
-                            FUNCTIONS.iter().flat_map(|i| i).cloned()
+                            FUNCTIONS.iter().cloned()
                         }
                     }
 
                     pub mod add {
                         use super::*;
+                        pub type Signature = #signature;
                         // WARNING: DO NOT CALL. THIS HAS TO BE PUBLIC FOR OTHER
                         // PARTS OF THE LIBRARY TO WORK BUT SHOULD NEVER BE USED.
-                        pub fn __add_label(name: &'static str, func: #signature) {
+                        pub fn __add_label(node: &mut CollectionNode<(&'static str, #signature)>) {
                             unsafe {
-                                if let Some(f) = &mut FUNCTIONS {
-                                    f.push((name, func));
-                                } else {
-                                    FUNCTIONS = Some(vec![(name, func)])
-                                }
+                                FUNCTIONS.push(node)
                             }
                         }
                     }
