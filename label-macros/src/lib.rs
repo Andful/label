@@ -414,7 +414,6 @@ pub fn create_label(signatures: TokenStream) -> TokenStream {
                 pub mod #name {
                     use super::*;
 
-                    pub use std::collections::HashMap;
                     pub use label::__label as label;
 
                     pub static mut FUNCTIONS: Option<Vec<(&'static str, #signature)>> = None;
